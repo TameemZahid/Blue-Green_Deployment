@@ -1,46 +1,82 @@
 pipeline {
-    agent { label 'slave' }
+  agent { label 'slave' }  // 👈 Your slave must have Docker installed
 
-    environment {
-        DOCKER_DRIVER = 'overlay2'
-        DOCKERHUB_USERNAME = 'tameemdevops'
-        DOCKERHUB_IMAGE = "${DOCKERHUB_USERNAME}/blue-green"
-        MICROK8S_PASSWORD = credentials('microk8')
-        MICROK8S_USERNAME = 'root'
-        MICROK8S_IP_ADDRESS = '137.184.65.39'
+  environment {
+    DOCKER_IMAGE = 'tameemdevops/blue-green'            // 🔁 DockerHub image name
+    DOCKER_TAG = "Blue"                                 // 🔁 Can be "Green" for green deployment
+    FULL_IMAGE = "${DOCKER_IMAGE}:${DOCKER_TAG}"
+    DOCKER_REGISTRY = 'docker.io'
+    DEPLOYMENT_NAME = 'mypythonapp-deploy'
+    CONTAINER_NAME = 'myapp'
+    NAMESPACE = 'default'
+    MICROK8S_HOST = '137.184.65.39'
+    REMOTE_DIR = '/root/bluegreenapp'
+  }
+
+  stages {
+    stage('Checkout Code') {
+      steps {
+        git url: 'https://github.com/TameemZahid/Blue-Green_Deployment.git', branch: 'main'
+      }
     }
 
-    stages {
-        stage('Build Blue') {
-            steps {
-                sh '''
-                /kaniko/executor \
-                  --context `pwd` \
-                  --dockerfile `pwd`/Dockerfile \
-                  --destination docker.io/${DOCKERHUB_IMAGE}:Blue
-                '''
-            }
-        }
-
-        stage('Build Green') {
-            steps {
-                sh '''
-                /kaniko/executor \
-                  --context `pwd` \
-                  --dockerfile `pwd`/Dockerfile \
-                  --destination docker.io/${DOCKERHUB_IMAGE}:Green
-                '''
-            }
-        }
-
-        stage('Deploy to MicroK8s') {
-            steps {
-                sh '''
-                apk add --no-cache openssh sshpass
-                sshpass -p "$MICROK8S_PASSWORD" scp -o StrictHostKeyChecking=no k8s/*.yml ${MICROK8S_USERNAME}@${MICROK8S_IP_ADDRESS}:/home/${MICROK8S_USERNAME}/k8s
-                sshpass -p "$MICROK8S_PASSWORD" ssh -o StrictHostKeyChecking=no ${MICROK8S_USERNAME}@${MICROK8S_IP_ADDRESS} "cd /home/${MICROK8S_USERNAME}/k8s && microk8s.kubectl apply -f ."
-                '''
-            }
-        }
+    stage('Build Docker Image') {
+      steps {
+        sh '''
+        echo "🛠️ Building Docker image: $FULL_IMAGE"
+        docker build -t $FULL_IMAGE .
+        '''
+      }
     }
+
+    stage('Push to Docker Hub') {
+      steps {
+        withCredentials([usernamePassword(
+          credentialsId: 'dev_cred',  // 🔐 Your Jenkins DockerHub creds
+          usernameVariable: 'DOCKER_USER',
+          passwordVariable: 'DOCKER_PASS'
+        )]) {
+          sh '''
+          echo "🔐 Logging into Docker Hub..."
+          echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin
+
+          echo "📦 Pushing Docker image to Docker Hub: $FULL_IMAGE"
+          docker push $FULL_IMAGE
+          '''
+        }
+      }
+    }
+
+    stage('Deploy to MicroK8s') {
+      steps {
+        sshagent(['microk8']) {
+          sh '''
+          echo "🚀 Deploying to MicroK8s..."
+
+          # Prepare remote directory
+          ssh -o StrictHostKeyChecking=no root@$MICROK8S_HOST "mkdir -p $REMOTE_DIR"
+
+          # Copy Kubernetes YAMLs
+          scp kubernetes/deployment.yaml root@$MICROK8S_HOST:$REMOTE_DIR/deployment.yaml
+
+          # Update deployment image and apply
+          ssh -o StrictHostKeyChecking=no root@$MICROK8S_HOST "
+            sed -i 's|image:.*|image: $FULL_IMAGE|' $REMOTE_DIR/deployment.yaml &&
+            microk8s.kubectl apply -f $REMOTE_DIR/deployment.yaml &&
+            microk8s.kubectl rollout status deployment/$DEPLOYMENT_NAME -n $NAMESPACE
+          "
+          '''
+        }
+      }
+    }
+  }
+
+  post {
+    success {
+      echo "✅ Deployed Successfully: $FULL_IMAGE"
+    }
+    failure {
+      echo "❌ Deployment Failed"
+    }
+  }
 }
