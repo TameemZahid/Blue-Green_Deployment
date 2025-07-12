@@ -1,10 +1,10 @@
 pipeline {
-    agent {label 'slave'}
+    agent { label 'slave' }
 
     environment {
         DOCKER_DRIVER = 'overlay2'
-        DOCKERHUB_USERNAME = 'tameemdevops/blue-green'
-        DOCKERHUB_IMAGE = "${DOCKERHUB_USERNAME}/bankapp"
+        DOCKERHUB_USERNAME = 'tameemdevops'
+        DOCKERHUB_IMAGE = "${DOCKERHUB_USERNAME}/blue-green"
         MICROK8S_PASSWORD = credentials('microk8s-password')
         MICROK8S_USERNAME = 'root'
         MICROK8S_IP_ADDRESS = '137.184.65.39'
@@ -12,12 +12,6 @@ pipeline {
 
     stages {
         stage('Build Blue') {
-            agent {
-                docker {
-                    image 'gcr.io/kaniko-project/executor:v1.23.2-debug'
-                    args '-v /kaniko/.docker:/kaniko/.docker'
-                }
-            }
             steps {
                 sh '''
                 /kaniko/executor \
@@ -29,12 +23,6 @@ pipeline {
         }
 
         stage('Build Green') {
-            agent {
-                docker {
-                    image 'gcr.io/kaniko-project/executor:v1.23.2-debug'
-                    args '-v /kaniko/.docker:/kaniko/.docker'
-                }
-            }
             steps {
                 sh '''
                 /kaniko/executor \
@@ -46,11 +34,6 @@ pipeline {
         }
 
         stage('Deploy to MicroK8s') {
-            agent {
-                docker {
-                    image 'alpine:latest'
-                }
-            }
             steps {
                 sh '''
                 apk add --no-cache openssh sshpass
