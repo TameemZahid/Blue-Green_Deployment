@@ -1,0 +1,63 @@
+pipeline {
+    agent any
+
+    environment {
+        DOCKER_DRIVER = 'overlay2'
+        DOCKERHUB_USERNAME = 'tameemdevops/blue-green'
+        DOCKERHUB_IMAGE = "${DOCKERHUB_USERNAME}/bankapp"
+        MICROK8S_PASSWORD = credentials('microk8s-password')
+        MICROK8S_USERNAME = 'root'
+        MICROK8S_IP_ADDRESS = '137.184.65.39'
+    }
+
+    stages {
+        stage('Build Blue') {
+            agent {
+                docker {
+                    image 'gcr.io/kaniko-project/executor:v1.23.2-debug'
+                    args '-v /kaniko/.docker:/kaniko/.docker'
+                }
+            }
+            steps {
+                sh '''
+                /kaniko/executor \
+                  --context `pwd` \
+                  --dockerfile `pwd`/Dockerfile \
+                  --destination docker.io/${DOCKERHUB_IMAGE}:Blue
+                '''
+            }
+        }
+
+        stage('Build Green') {
+            agent {
+                docker {
+                    image 'gcr.io/kaniko-project/executor:v1.23.2-debug'
+                    args '-v /kaniko/.docker:/kaniko/.docker'
+                }
+            }
+            steps {
+                sh '''
+                /kaniko/executor \
+                  --context `pwd` \
+                  --dockerfile `pwd`/Dockerfile \
+                  --destination docker.io/${DOCKERHUB_IMAGE}:Green
+                '''
+            }
+        }
+
+        stage('Deploy to MicroK8s') {
+            agent {
+                docker {
+                    image 'alpine:latest'
+                }
+            }
+            steps {
+                sh '''
+                apk add --no-cache openssh sshpass
+                sshpass -p "$MICROK8S_PASSWORD" scp -o StrictHostKeyChecking=no k8s/*.yml ${MICROK8S_USERNAME}@${MICROK8S_IP_ADDRESS}:/home/${MICROK8S_USERNAME}/k8s
+                sshpass -p "$MICROK8S_PASSWORD" ssh -o StrictHostKeyChecking=no ${MICROK8S_USERNAME}@${MICROK8S_IP_ADDRESS} "cd /home/${MICROK8S_USERNAME}/k8s && microk8s.kubectl apply -f ."
+                '''
+            }
+        }
+    }
+}
