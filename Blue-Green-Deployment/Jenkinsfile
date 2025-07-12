@@ -5,7 +5,7 @@ pipeline {
         DOCKER_DRIVER = 'overlay2'
         DOCKERHUB_USERNAME = 'tameemdevops'
         DOCKERHUB_IMAGE = "${DOCKERHUB_USERNAME}/blue-green"
-        MICROK8S_PASSWORD = credentials('microk8s-password')
+        MICROK8S_PASSWORD = credentials('microk8')
         MICROK8S_USERNAME = 'root'
         MICROK8S_IP_ADDRESS = '137.184.65.39'
     }
