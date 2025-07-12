@@ -23,7 +23,9 @@ pipeline {
     stage('Build Docker Image') {
       steps {
         sh '''
+        
         echo "🛠️ Building Docker image: $FULL_IMAGE"
+        cd Blue-Green-Deployment
         docker build -t $FULL_IMAGE .
         '''
       }
