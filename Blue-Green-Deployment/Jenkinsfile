@@ -1,13 +1,12 @@
 pipeline {
-  agent { label 'slave' }  // 👈 Your slave must have Docker installed
+  agent { label 'slave' }
 
   environment {
-    DOCKER_IMAGE = 'tameemdevops/blue-green'            // 🔁 DockerHub image name
-    DOCKER_TAG = "Blue"                                 // 🔁 Can be "Green" for green deployment
+    DOCKER_IMAGE = 'tameemdevops/blue-green'
+    DOCKER_TAG = "Blue"
     FULL_IMAGE = "${DOCKER_IMAGE}:${DOCKER_TAG}"
-    DOCKER_REGISTRY = 'docker.io'
-    DEPLOYMENT_NAME = 'mypythonapp-deploy'
-    CONTAINER_NAME = 'myapp'
+    DEPLOYMENT_NAME = 'bankapp-blue'
+    CONTAINER_NAME = 'bankapp'
     NAMESPACE = 'default'
     MICROK8S_HOST = '137.184.65.39'
     REMOTE_DIR = '/root/bluegreenapp'
@@ -20,10 +19,19 @@ pipeline {
       }
     }
 
+    stage('Build JAR with Maven') {
+      steps {
+        sh '''
+        echo "📦 Packaging Spring Boot app..."
+        cd Blue-Green-Deployment
+        ./mvnw clean package -DskipTests || mvn clean package -DskipTests
+        '''
+      }
+    }
+
     stage('Build Docker Image') {
       steps {
         sh '''
-        
         echo "🛠️ Building Docker image: $FULL_IMAGE"
         cd Blue-Green-Deployment
         docker build -t $FULL_IMAGE .
@@ -34,7 +42,7 @@ pipeline {
     stage('Push to Docker Hub') {
       steps {
         withCredentials([usernamePassword(
-          credentialsId: 'dev_cred',  // 🔐 Your Jenkins DockerHub creds
+          credentialsId: 'dev_cred',
           usernameVariable: 'DOCKER_USER',
           passwordVariable: 'DOCKER_PASS'
         )]) {
@@ -55,13 +63,13 @@ pipeline {
           sh '''
           echo "🚀 Deploying to MicroK8s..."
 
-          # Prepare remote directory
+          # Prepare remote dir
           ssh -o StrictHostKeyChecking=no root@$MICROK8S_HOST "mkdir -p $REMOTE_DIR"
 
-          # Copy Kubernetes YAMLs
-          scp kubernetes/deployment.yaml root@$MICROK8S_HOST:$REMOTE_DIR/deployment.yaml
+          # Copy correct YAML
+          scp Blue-Green-Deployment/k8s/app-deployment-blue.yml root@$MICROK8S_HOST:$REMOTE_DIR/deployment.yaml
 
-          # Update deployment image and apply
+          # Remote deploy steps
           ssh -o StrictHostKeyChecking=no root@$MICROK8S_HOST "
             sed -i 's|image:.*|image: $FULL_IMAGE|' $REMOTE_DIR/deployment.yaml &&
             microk8s.kubectl apply -f $REMOTE_DIR/deployment.yaml &&
@@ -75,10 +83,10 @@ pipeline {
 
   post {
     success {
-      echo "✅ Deployed Successfully: $FULL_IMAGE"
+      echo "✅ Successfully deployed: $FULL_IMAGE"
     }
     failure {
-      echo "❌ Deployment Failed"
+      echo "❌ Deployment failed."
     }
   }
 }
