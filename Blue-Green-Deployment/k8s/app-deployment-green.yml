@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
       - name: bankapp
-        image:   spec:
+        image: tameemdevops/blue-green:Blue
       containers:
       - name: bankapp
         image: tameemdevops/blue-green:Blue
