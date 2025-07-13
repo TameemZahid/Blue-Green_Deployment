@@ -3,7 +3,7 @@ pipeline {
 
   environment {
     DOCKER_IMAGE = 'tameemdevops/blue-green'
-    DOCKER_TAG = 'Blue'  // 🔁 Change to Green if needed
+    DOCKER_TAG = 'Blue'
     FULL_IMAGE = "${DOCKER_IMAGE}:${DOCKER_TAG}"
     DEPLOYMENT_NAME = 'bankapp-blue'
     NAMESPACE = 'default'
@@ -15,6 +15,22 @@ pipeline {
     stage('Checkout Code') {
       steps {
         git url: 'https://github.com/TameemZahid/Blue-Green_Deployment.git', branch: 'main'
+      }
+    }
+
+    stage('Build JAR with Maven') {
+      agent {
+        docker {
+          image 'maven:3.8.6-openjdk-17'
+          args '-v /root/.m2:/root/.m2'
+        }
+      }
+      steps {
+        sh '''
+        echo "📦 Building Spring Boot JAR"
+        cd Blue-Green-Deployment
+        ./mvnw clean package -DskipTests || mvn clean package -DskipTests
+        '''
       }
     }
 
@@ -49,13 +65,9 @@ pipeline {
           sh '''
           echo "🚀 Deploying to MicroK8s"
 
-          # Prepare the remote folder
           ssh -o StrictHostKeyChecking=no root@$MICROK8S_HOST "mkdir -p $REMOTE_DIR"
-
-          # Copy your Kubernetes YAMLs
           scp Blue-Green-Deployment/k8s/*.yml root@$MICROK8S_HOST:$REMOTE_DIR/
 
-          # Replace image name in deployment
           ssh -o StrictHostKeyChecking=no root@$MICROK8S_HOST "
             sed -i 's|image:.*|image: $FULL_IMAGE|' $REMOTE_DIR/app-deployment-blue.yml &&
             microk8s.kubectl apply -f $REMOTE_DIR &&
