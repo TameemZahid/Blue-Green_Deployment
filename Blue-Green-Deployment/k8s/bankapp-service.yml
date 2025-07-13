@@ -21,7 +21,7 @@ metadata:
     nginx.ingress.kubernetes.io/rewrite-target: /
 spec:
   rules:
-  - host: 
+  - host: bank.app
     http:
       paths:
       - path: /
