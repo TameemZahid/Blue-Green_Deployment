@@ -20,15 +20,20 @@ pipeline {
     }
 
     stage('Build JAR with Maven') {
-      steps {
-        sh '''
-        echo "📦 Packaging Spring Boot app..."
-        cd Blue-Green-Deployment
-        ./mvnw clean package -DskipTests || mvn clean package -DskipTests
-        '''
-      }
+  agent {
+    docker {
+      image 'maven:3.8.6-openjdk-17'
+      args '-v /root/.m2:/root/.m2' // Optional: to cache dependencies
     }
-
+  }
+  steps {
+    sh '''
+    echo "📦 Packaging Spring Boot app using Maven in container"
+    cd Blue-Green-Deployment
+    mvn clean package -DskipTests
+    '''
+  }
+}
     stage('Build Docker Image') {
       steps {
         sh '''
