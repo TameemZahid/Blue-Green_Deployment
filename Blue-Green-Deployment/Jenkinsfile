@@ -1,11 +1,11 @@
 pipeline {
-  agent { label 'slave' }
+  agent none  // We'll define agent per stage
 
   environment {
-    DOCKER_IMAGE = 'tameemdevops/blue-green'
-    DOCKER_TAG = 'Blue'
+    DOCKER_IMAGE = 'tameemdevops/blue-green'       // Your DockerHub image
+    DOCKER_TAG = 'Blue'                            // Change to 'Green' if needed
     FULL_IMAGE = "${DOCKER_IMAGE}:${DOCKER_TAG}"
-    DEPLOYMENT_NAME = 'bankapp-blue'
+    DEPLOYMENT_NAME = 'bankapp-blue'               // Your K8s deployment name
     NAMESPACE = 'default'
     MICROK8S_HOST = '137.184.65.39'
     REMOTE_DIR = '/root/k8s'
@@ -13,18 +13,14 @@ pipeline {
 
   stages {
     stage('Checkout Code') {
+      agent { label 'slave' }
       steps {
         git url: 'https://github.com/TameemZahid/Blue-Green_Deployment.git', branch: 'main'
       }
     }
 
     stage('Build JAR with Maven') {
-      agent {
-        docker {
-          image 'maven:3.8.6-openjdk-17'
-          args '-v /root/.m2:/root/.m2'
-        }
-      }
+      agent { label 'slave' }  // Ensure Maven is installed here
       steps {
         sh '''
         echo "📦 Building Spring Boot JAR"
@@ -35,6 +31,7 @@ pipeline {
     }
 
     stage('Build Docker Image') {
+      agent { label 'slave' }  // Ensure Docker is installed here
       steps {
         sh '''
         echo "🐳 Building Docker Image"
@@ -45,14 +42,18 @@ pipeline {
     }
 
     stage('Push Docker Image') {
+      agent { label 'slave' }
       steps {
         withCredentials([usernamePassword(
-          credentialsId: 'dev_cred',
+          credentialsId: 'dev_cred',  // 👈 Replace with your actual Jenkins DockerHub creds ID
           usernameVariable: 'DOCKER_USER',
           passwordVariable: 'DOCKER_PASS'
         )]) {
           sh '''
+          echo "🔐 Logging into Docker Hub..."
           echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin
+
+          echo "📤 Pushing image to Docker Hub"
           docker push $FULL_IMAGE
           '''
         }
@@ -60,14 +61,19 @@ pipeline {
     }
 
     stage('Deploy to MicroK8s') {
+      agent { label 'slave' }
       steps {
-        sshagent(['microk8']) {
+        sshagent(['microk8']) {  // 👈 Jenkins credential ID for your SSH key
           sh '''
           echo "🚀 Deploying to MicroK8s"
 
+          # Ensure remote directory exists
           ssh -o StrictHostKeyChecking=no root@$MICROK8S_HOST "mkdir -p $REMOTE_DIR"
+
+          # Copy Kubernetes manifests
           scp Blue-Green-Deployment/k8s/*.yml root@$MICROK8S_HOST:$REMOTE_DIR/
 
+          # Update image in the YAML and apply
           ssh -o StrictHostKeyChecking=no root@$MICROK8S_HOST "
             sed -i 's|image:.*|image: $FULL_IMAGE|' $REMOTE_DIR/app-deployment-blue.yml &&
             microk8s.kubectl apply -f $REMOTE_DIR &&
