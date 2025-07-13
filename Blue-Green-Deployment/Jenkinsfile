@@ -1,5 +1,5 @@
 pipeline {
-  agent { label 'slave' }
+  agent none  // 👈 Top-level agent is "none" because we're setting it per stage
 
   environment {
     DOCKER_IMAGE = 'tameemdevops/blue-green'
@@ -13,28 +13,32 @@ pipeline {
   }
 
   stages {
+
     stage('Checkout Code') {
+      agent { label 'slave' }
       steps {
         git url: 'https://github.com/TameemZahid/Blue-Green_Deployment.git', branch: 'main'
       }
     }
 
     stage('Build JAR with Maven') {
-  agent {
-    docker {
-      image 'maven:3.8.6-openjdk-17'
-      args '-v /root/.m2:/root/.m2' // Optional: to cache dependencies
+      agent {
+        docker {
+          image 'maven:3.8.6-openjdk-17'
+          args '-v /root/.m2:/root/.m2'
+        }
+      }
+      steps {
+        sh '''
+        echo "📦 Packaging Spring Boot app using Maven in container"
+        cd Blue-Green-Deployment
+        mvn clean package -DskipTests
+        '''
+      }
     }
-  }
-  steps {
-    sh '''
-    echo "📦 Packaging Spring Boot app using Maven in container"
-    cd Blue-Green-Deployment
-    mvn clean package -DskipTests
-    '''
-  }
-}
+
     stage('Build Docker Image') {
+      agent { label 'slave' }
       steps {
         sh '''
         echo "🛠️ Building Docker image: $FULL_IMAGE"
@@ -45,6 +49,7 @@ pipeline {
     }
 
     stage('Push to Docker Hub') {
+      agent { label 'slave' }
       steps {
         withCredentials([usernamePassword(
           credentialsId: 'dev_cred',
@@ -54,7 +59,6 @@ pipeline {
           sh '''
           echo "🔐 Logging into Docker Hub..."
           echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin
-
           echo "📦 Pushing Docker image to Docker Hub: $FULL_IMAGE"
           docker push $FULL_IMAGE
           '''
@@ -63,6 +67,7 @@ pipeline {
     }
 
     stage('Deploy to MicroK8s') {
+      agent { label 'slave' }
       steps {
         sshagent(['microk8']) {
           sh '''
@@ -71,10 +76,10 @@ pipeline {
           # Prepare remote dir
           ssh -o StrictHostKeyChecking=no root@$MICROK8S_HOST "mkdir -p $REMOTE_DIR"
 
-          # Copy correct YAML
+          # Copy YAML to remote host
           scp Blue-Green-Deployment/k8s/app-deployment-blue.yml root@$MICROK8S_HOST:$REMOTE_DIR/deployment.yaml
 
-          # Remote deploy steps
+          # Apply to MicroK8s
           ssh -o StrictHostKeyChecking=no root@$MICROK8S_HOST "
             sed -i 's|image:.*|image: $FULL_IMAGE|' $REMOTE_DIR/deployment.yaml &&
             microk8s.kubectl apply -f $REMOTE_DIR/deployment.yaml &&
