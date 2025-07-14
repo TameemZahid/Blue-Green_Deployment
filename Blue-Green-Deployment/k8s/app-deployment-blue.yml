@@ -1,35 +1,46 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: bankapp-blue
+  name: bankapp
 spec:
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels:
       app: bankapp
-      version: blue
   template:
     metadata:
       labels:
         app: bankapp
-        version: blue
     spec:
       containers:
       - name: bankapp
         image: tameemdevops/blue-green:Blue
         ports:
         - containerPort: 8080
-        env:
-        - name: SPRING_DATASOURCE_URL
-          value: jdbc:mysql://mysql-service:3306/bankappdb?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
-        - name: SPRING_DATASOURCE_USERNAME
-          value: root
-        - name: SPRING_DATASOURCE_PASSWORD
-          value: Test@123
+
+        # Liveness Probe: Is the app stuck or dead?
+        livenessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8080
+          initialDelaySeconds: 20
+          periodSeconds: 10
+          failureThreshold: 3
+
+        # 📦 Readiness Probe: Is the app ready for traffic?
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          failureThreshold: 3
+
+        # ⚙️ Resources: Tell K8s how much you need/request/limit
         resources:
           requests:
-            memory: "500Mi"
+            memory: "512Mi"
             cpu: "500m"
           limits:
-            memory: "1000Mi"
-            cpu: "1000m"
+            memory: "1Gi"
+            cpu: "1"
